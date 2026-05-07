@@ -1,0 +1,156 @@
+@import "tailwindcss";
+@plugin "daisyui";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-layout-bg: var(--layout-bg);
+  --color-dialog-bg: var(--dialog-bg);
+  --color-chat-bg: var(--chat-list-bg);
+
+  --color-form-border: var(--form-border);
+  --color-contact-hover: var(--contact-hover);
+  --color-form-bg: var(--form-bg);
+
+  --color-progress-bg: var(--progress-bg);
+  --color-card: var(--card);
+  --color-text: var(--text);
+  --color-border: var(--border);
+
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+
+  --color-error: var(--error);
+  --color-muted: var(--muted);
+
+  --color-input-bg: var(--input-bg);
+  --color-input-text: var(--input-text);
+
+  --color-chat-bg: var(--chat-bg);
+
+  --color-msg-bg: var(--msg-bg);
+}
+
+:root {
+  --bg: #ffffff;
+  --layout-bg: #f9fafb;
+  --form-bg: #e6e8ee;
+  --dialog-bg: #ffffff;
+  --chat-list-bg: #ffffff;
+
+  --card: #ffffff;
+
+  --form-border: #cbcccf;
+  --border: #f3f4f6;
+  --text: #1f2937;
+
+  --primary: #22c55e;
+  --primary-hover: #16a34a;
+
+  --contact-hover: #f3f4f6;
+  --error: #ef4444;
+  --muted: #545861;
+
+  --input-bg: #ffffff;
+  --input-text: #111827;
+
+  --progress-bg: #e5e7eb;
+
+  --chat-bg: rgb(241, 236, 229);
+
+  --msg-bg: rgb(144, 244, 126);
+}
+
+.dark {
+  --bg: #111827;
+  --layout-bg: #0f172a;
+  --dialog-bg: #202c33;
+  --chat-list-bg: rgb(17, 27, 33);
+
+  --form-bg: #364153;
+  --form-border: #4a5565;
+
+  --card: #111827;
+  --text: #ffffff;
+  --border: #374151;
+
+  --contact-hover: #1f2937;
+
+  --primary: #22c55e;
+  --primary-hover: #16a34a;
+
+  --error: #ef4444;
+  --muted: #9ca3af;
+
+  --input-bg: #374151;
+  --input-text: #ffffff;
+
+  --progress-bg: #374151;
+
+  --chat-bg: #191a1a;
+  --msg-bg: #144d38;
+}
+
+@layer base {
+  body {
+    background: var(--color-bg);
+    color: var(--color-text);
+  }
+}
+
+.flex-center {
+  @apply flex justify-center items-center;
+}
+
+.card {
+  background: var(--color-card);
+  @apply rounded-xl shadow-2xl;
+}
+
+.input {
+  @apply w-full px-4 py-2 border rounded-md focus:outline-none focus:ring-2;
+  background: var(--color-input-bg); /* ✅ updated */
+  color: var(--color-input-text); /* ✅ updated */
+  border-color: var(--color-border);
+}
+
+.input-icon {
+  @apply flex items-center px-4 py-2 border rounded-md focus:ring-2;
+  background: var(--color-input-bg); /* ✅ updated */
+  border-color: var(--color-border);
+}
+
+.btn-primary {
+  @apply w-full py-2 rounded-lg text-white font-medium transition-all duration-300;
+  background: var(--color-primary);
+}
+
+.btn-primary:hover {
+  background: var(--color-primary-hover);
+}
+
+.text-error {
+  color: var(--color-error);
+  @apply text-sm font-medium my-1;
+}
+
+.dropdown {
+  @apply absolute z-10 border rounded-md shadow-lg max-h-60 overflow-auto w-full mt-1;
+  background: var(--color-input-bg); /* ✅ updated */
+  border-color: var(--color-border);
+}
+
+.progress-bg {
+  background: var(--color-progress-bg);
+  @apply w-full h-2.5 rounded-full mb-6;
+}
+
+.progress-fill {
+  background: var(--color-primary);
+  @apply h-2.5 rounded-full;
+}
+
+.bg-auth-gradient {
+  background-image: linear-gradient(to bottom right, #4ade80, #3b82f6);
+}
