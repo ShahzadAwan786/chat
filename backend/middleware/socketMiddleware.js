@@ -16,7 +16,6 @@ const socketMiddleware = async (socket, next) => {
     next();
   } catch (error) {
     console.error(error);
-    return response(res, 401, "Invalid or expired token");
   }
 };
 
