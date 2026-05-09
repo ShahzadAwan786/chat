@@ -16,7 +16,10 @@ const app = express();
 const PORT = process.env.PORT;
 
 const corsOption = {
-  origin: process.env.FRONTEND_URL,
+  origin: [
+    process.env.FRONTEND_URL,
+    `https://unique-peace-production-5915.up.railway.app/`,
+  ],
   credentials: true,
 };
 
