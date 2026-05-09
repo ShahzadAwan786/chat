@@ -104,7 +104,7 @@ const viewStatus = async (req, res) => {
             totalViewers: updateStatus.viewers.length,
             viewers: updateStatus.viewers,
           };
-          res.io.to(statusOwnerSocketId).emit("status_viewed", viewData);
+          req.io.to(statusOwnerSocketId).emit("status_viewed", viewData);
         } else {
           console.log("Status owner not connected");
         }
@@ -127,7 +127,7 @@ const deleteStatus = async (req, res) => {
     if (!status) {
       return response(res, 404, "Status not found");
     }
-    if (!status.user.toString() !== userId) {
+    if (status.user.toString() !== userId) {
       return response(res, 403, "No authorized to delete this status");
     }
     await status.deleteOne();

@@ -11,8 +11,7 @@ const authTokenVerifyMiddleware = async (req, res, next) => {
   //     "Authorization token missing, please provide token",
   //   );
   // }
-  const authHeader = req.headers("authorization");
-
+  const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith("Bearer")) {
     return response(
       res,
@@ -21,7 +20,7 @@ const authTokenVerifyMiddleware = async (req, res, next) => {
     );
   }
 
-  const authToken = authHeader.split(" ")(1);
+  const authToken = authHeader.split(" ")[1];
   try {
     const decode = jwt.verify(authToken, process.env.JWT_SECRET);
     req.user = decode;
