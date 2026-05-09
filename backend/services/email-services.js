@@ -7,17 +7,11 @@ const transporter = nodemailer.createTransport({
     user: process.env.EMAIL_USER,
     pass: process.env.EMAIL_PASS,
   },
-  tls: {
-    rejectUnauthorized: false,
-  },
-  connectionTimeout: 15000,
-  greetingTimeout: 15000,
-  socketTimeout: 15000,
 });
 
 transporter.verify((error) => {
   if (error) {
-    console.error("SMTP ERROR:", error);
+    console.error("Gmail services connection fail", error);
   } else {
     console.log("Email service ready");
   }
