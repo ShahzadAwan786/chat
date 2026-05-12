@@ -1,8 +1,7 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import * as yup from "yup";
 import { yupResolver } from "@hookform/resolvers/yup";
 import useLoginStore from "../../store/use-login-store";
-import { useState } from "react";
 import countries from "../../utils/countries";
 import { avatars } from "../../utils/data";
 import { useForm } from "react-hook-form";
@@ -15,6 +14,12 @@ import { IoPerson } from "react-icons/io5";
 import Spinner from "../../utils/spinner";
 import { sendOtp, updateUserProfile, verifyOtp } from "../../services/user-api";
 import { toast } from "react-toastify";
+
+/* ✅ GOOGLE LOGIN ONLY (NO UI CHANGE) */
+import { GoogleLogin } from "@react-oauth/google";
+import { jwtDecode } from "jwt-decode";
+
+/* ---------------- VALIDATION ---------------- */
 
 const loginValidationSchema = yup
   .object()
@@ -43,6 +48,7 @@ const loginValidationSchema = yup
       return !!(value.phoneNumber || value.email);
     },
   );
+
 const otpValidationSchema = yup.object().shape({
   otp: yup
     .string()
@@ -54,24 +60,29 @@ const profileValidationSchema = yup.object().shape({
   username: yup.string().required("Username is required"),
   agreed: yup.bool().oneOf([true], "You must agree to the terms"),
 });
+
+/* ---------------- COMPONENT ---------------- */
+
 export default function LogIn() {
   const { step, userPhoneData, setStep, setUserPhoneData, resetLoginState } =
     useLoginStore();
+
   const [phoneNumber, setPhoneNumber] = useState("");
   const [otp, setOtp] = useState(["", "", "", "", "", ""]);
-  const [email, setEmail] = useState("");
   const [selectedCountry, setSelectedCountry] = useState(countries[15]);
   const [profilePicture, setProfilePicture] = useState(null);
   const [profilePictureFile, setprofilePictureFile] = useState(null);
-  const [selectedAvatar, setSelectedAvatar] = useState(avatars[4]);
+  const [selectedAvatar] = useState(avatars[4]);
   const [error, setError] = useState("");
   const { setUser } = useUserStore();
-  const { theme, setTheme } = useThemeStore();
+  const { theme } = useThemeStore();
   const [showDropDown, setShowDropDown] = useState(false);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(false);
 
   const navigation = useNavigate();
+
+  /* ---------------- FORMS ---------------- */
 
   const {
     register: loginRegister,
@@ -97,34 +108,64 @@ export default function LogIn() {
   } = useForm({
     resolver: yupResolver(profileValidationSchema),
   });
-  const ProgressBar = () => (
-    <div
-      className={`w-full h-2.5  rounded-full mb-6 ${theme === "dark" ? "bg-gray-700" : "bg-gray-200"} transation-all duration-500 ease-in-out`}
-    >
-      <div
-        className="bg-green-600 rounded-full h-2.5"
-        style={{ width: `${(step / 3) * 100}%` }}
-      ></div>
-    </div>
-  );
-  const filterCountry = countries.filter(
-    (country) =>
-      country.name.toLowerCase().includes(search.toLowerCase()) ||
-      country.dialCode.includes(search),
-  );
+
+  const handleGoogleSuccess = (credentialResponse) => {
+    try {
+      const decoded = jwtDecode(credentialResponse.credential);
+
+      const googleUser = {
+        email: decoded.email,
+        userName: decoded.name,
+        profilePicture: decoded.picture,
+      };
+
+      setUser(googleUser);
+
+      toast.success("Google Login Success");
+
+      navigation("/");
+    } catch (err) {
+      console.log(err);
+      toast.error("Google Login Failed");
+    }
+  };
+
+  /* ---------------- OTP ---------------- */
+
+  const handleOtpChange = (index, value) => {
+    const newOtp = [...otp];
+    newOtp[index] = value;
+    setOtp(newOtp);
+    setOtpValue("otp", newOtp.join(""));
+
+    if (value && index < 5) {
+      document.getElementById(`otp-${index + 1}`).focus();
+    }
+  };
+
+  const handleBack = () => {
+    setStep(1);
+    setUserPhoneData(null);
+    setError(null);
+    setOtp(["", "", "", "", "", ""]);
+  };
+
+  /* ---------------- LOGIN ---------------- */
 
   const onLoginSubmit = async (data) => {
     try {
-      const { email, phoneNumber } = data;
       setLoading(true);
+      const { email, phoneNumber } = data;
+
       if (email) {
         const res = await sendOtp({
-          phoneSuffix: null,
           email,
           phoneNumber: null,
+          phoneSuffix: null,
         });
+
         if (res.status === "success") {
-          toast.info("OTP is send  to your email ");
+          toast.info("OTP is sent to your email");
           setUserPhoneData({ email });
           setStep(2);
         }
@@ -134,8 +175,9 @@ export default function LogIn() {
           phoneNumber,
           phoneSuffix: selectedCountry.dialCode,
         });
+
         if (res.status === "success") {
-          toast.info("OTP is send  to your phoneNumber ");
+          toast.info("OTP is sent to your phoneNumber");
           setUserPhoneData({
             phoneNumber,
             phoneSuffix: selectedCountry.dialCode,
@@ -143,31 +185,25 @@ export default function LogIn() {
           setStep(2);
         }
       }
+
       setError("");
     } catch (error) {
-      console.log(error);
       setError(error.message || "Failed to send otp");
     } finally {
       setLoading(false);
     }
   };
 
+  /* ---------------- OTP VERIFY ---------------- */
+
   const onOtpSubmit = async () => {
     try {
       setLoading(true);
-      setError("");
-
-      if (!userPhoneData?.email && !userPhoneData?.phoneNumber) {
-        throw new Error("Email or phone number is missing");
-      }
-      if (!otp || otp.length !== 6 || otp.includes("")) {
-        setError("Please enter a valid OTP");
-        return;
-      }
 
       const otpString = otp.join("");
 
       let res;
+
       if (userPhoneData?.email) {
         res = await verifyOtp({
           email: userPhoneData.email,
@@ -183,13 +219,11 @@ export default function LogIn() {
 
       if (res?.status === "success") {
         const user = res.data?.user;
-
-        toast.success("OTP verified successfully");
-
         const token = res.data?.token;
-        if (token && token !== "undefined") {
-          localStorage.setItem("auth-token", token);
-        }
+
+        if (token) localStorage.setItem("auth-token", token);
+
+        toast.success("OTP verified");
 
         if (user?.userName && user?.profilePicture) {
           setUser(user);
@@ -198,61 +232,63 @@ export default function LogIn() {
         } else {
           setStep(3);
         }
-      } else {
-        setError(res?.message || "Invalid OTP");
       }
     } catch (error) {
-      console.log(error);
-      setError(error?.message || "Failed to verify OTP");
+      setError("OTP verification failed");
     } finally {
       setLoading(false);
     }
   };
 
+  /* ---------------- PROFILE IMAGE FIX ---------------- */
+
   const handleProfileChange = (e) => {
-    setprofilePictureFile(e.target.files[0]);
+    const file = e.target.files[0];
+    setprofilePictureFile(file);
     setProfilePicture(URL.createObjectURL(file));
   };
 
   const onProfileSubmit = async (data) => {
     try {
       setLoading(true);
+
       const formData = new FormData();
       formData.append("username", data.username);
       formData.append("agreed", data.agreed);
+
       if (profilePictureFile) {
         formData.append("media", profilePictureFile);
       } else {
         formData.append("profilePicture", selectedAvatar);
       }
+
       await updateUserProfile(formData);
+
       toast.success("Welcome to Whatsapp");
+
       navigation("/");
       resetLoginState();
     } catch (error) {
-      console.log(error);
-      setError(error.message || "Failed to update user profile");
+      setError("Failed to update profile");
     } finally {
       setLoading(false);
     }
   };
-
-  const handleOtpChange = (index, value) => {
-    const newOtp = [...otp];
-    newOtp[index] = value;
-    setOtp(newOtp);
-    setOtpValue("otp", newOtp.join(""));
-    if (value && index < 5) {
-      document.getElementById(`otp-${index + 1}`).focus();
-    }
-  };
-
-  const handleBack = () => {
-    setStep(1);
-    setUserPhoneData(null);
-    setError(null);
-    setOtp(["", "", "", "", "", ""]);
-  };
+  const ProgressBar = () => (
+    <div
+      className={`w-full h-2.5  rounded-full mb-6 ${theme === "dark" ? "bg-gray-700" : "bg-gray-200"} transation-all duration-500 ease-in-out`}
+    >
+      <div
+        className="bg-green-600 rounded-full h-2.5"
+        style={{ width: `${(step / 3) * 100}%` }}
+      ></div>
+    </div>
+  );
+  const filterCountry = countries.filter(
+    (country) =>
+      country.name.toLowerCase().includes(search.toLowerCase()) ||
+      country.dialCode.includes(search),
+  );
   return (
     <>
       <div
@@ -374,19 +410,11 @@ export default function LogIn() {
                   <div className="grow bg-gray-500 h-0.5" />
                 </div>
                 <div>
-                  <div
-                    className={`${theme === "dark" ? "bg-gray-700 text-white border-gray-600" : "bg-white border-gray-300"} border flex items-center justify-center rounded-md px-4 py-2 focus:outline-none focus:ring-2 focus:ring-green-500 ${loginErrors.email ? "border-red-500" : ""}`}
-                  >
-                    <IoPerson
-                      className={`${theme === "dark" ? "text-gray-400" : "text-gray-500"} mr-2`}
-                    />
-                    <input
-                      type="email"
-                      placeholder="Email (Optional) "
-                      {...loginRegister("email")}
-                      className={`${theme === "dark" ? " text-white " : ""} w-full focus:outline-none `}
-                    />
-                  </div>
+                  <GoogleLogin
+                    onSuccess={handleGoogleSuccess}
+                    onError={() => toast.error("Google Login Failed")}
+                    className="flex justify-center text-center mb-3 w-full"
+                  />
                   {loginErrors.email && (
                     <p className="text-red-500 text-sm font-medium my-1">
                       {loginErrors.email.message}
