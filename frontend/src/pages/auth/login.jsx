@@ -12,7 +12,12 @@ import { motion } from "framer-motion";
 import useUserStore from "../../store/use-user-store";
 import { IoPerson } from "react-icons/io5";
 import Spinner from "../../utils/spinner";
-import { sendOtp, updateUserProfile, verifyOtp } from "../../services/user-api";
+import {
+  googleLoginApi,
+  sendOtp,
+  updateUserProfile,
+  verifyOtp,
+} from "../../services/user-api";
 import { toast } from "react-toastify";
 
 /* ✅ GOOGLE LOGIN ONLY (NO UI CHANGE) */
@@ -109,24 +114,36 @@ export default function LogIn() {
     resolver: yupResolver(profileValidationSchema),
   });
 
-  const handleGoogleSuccess = (credentialResponse) => {
+  const handleGoogleSuccess = async (credentialResponse) => {
     try {
+      setLoading(true);
+
       const decoded = jwtDecode(credentialResponse.credential);
 
-      const googleUser = {
+      const res = await googleLoginApi({
         email: decoded.email,
         userName: decoded.name,
         profilePicture: decoded.picture,
-      };
+      });
 
-      setUser(googleUser);
+      if (res.status === "success") {
+        const token = res.data.token;
+        const user = res.data.user;
 
-      toast.success("Google Login Success");
+        localStorage.setItem("auth-token", token);
 
-      navigation("/");
+        setUser(user);
+
+        toast.success("Google Login Success");
+
+        navigation("/");
+      }
     } catch (err) {
       console.log(err);
+
       toast.error("Google Login Failed");
+    } finally {
+      setLoading(false);
     }
   };
 

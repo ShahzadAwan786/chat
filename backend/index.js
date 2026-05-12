@@ -17,8 +17,8 @@ const PORT = process.env.PORT;
 
 const corsOption = {
   origin: [
-    process.env.FRONTEND_URL,
-    `https://unique-peace-production-5915.up.railway.app/`,
+    `http://localhost:5173`,
+    `https://whatsapp-clone-three-pi.vercel.app`,
   ],
   credentials: true,
 };

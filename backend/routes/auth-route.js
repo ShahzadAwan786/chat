@@ -6,6 +6,7 @@ const {
   verifyOtp,
   updateProfile,
   getAllUser,
+  googleLogin,
 } = require("../controllers/auth-controller");
 
 const {
@@ -27,5 +28,6 @@ router.put(
 );
 
 router.get("/check-auth", authTokenVerifyMiddleware, checkAuthentication);
+router.post("/google-login", googleLogin);
 router.get("/users", authTokenVerifyMiddleware, getAllUser);
 module.exports = router;

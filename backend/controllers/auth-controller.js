@@ -6,6 +6,43 @@ const phoneTwilioService = require("../services/twilio-phone-services");
 const generateToken = require("../utils/generate-token");
 const { uploadFileToCloudinary } = require("../config/cloudinary-config");
 const Conversation = require("../models/conversation");
+const { OAuth2Client } = require("google-auth-library");
+
+const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+
+const googleLogin = async (req, res) => {
+  try {
+    const { email, userName, profilePicture } = req.body;
+
+    if (!email) {
+      return res.status(400).json({
+        status: "error",
+        message: "Email is required",
+      });
+    }
+
+    let user = await User.findOne({ email });
+
+    if (!user) {
+      user = await User.create({
+        email,
+        userName,
+        profilePicture,
+      });
+    }
+
+    const token = generateToken(user?._id);
+
+    return response(res, 200, "Google login success", { user, token });
+  } catch (error) {
+    console.log(error);
+
+    return res.status(500).json({
+      status: "error",
+      message: "Google login failed",
+    });
+  }
+};
 
 const sendOtp = async (req, res) => {
   const { email, phoneNumber, phoneSuffix } = req.body;
@@ -169,4 +206,11 @@ const getAllUser = async (req, res) => {
   }
 };
 
-module.exports = { sendOtp, verifyOtp, updateProfile, logout, getAllUser };
+module.exports = {
+  sendOtp,
+  verifyOtp,
+  updateProfile,
+  logout,
+  getAllUser,
+  googleLogin,
+};
