@@ -40,11 +40,13 @@ export default function MessageBubble({
     : `chat-bubble max-w-[70%] min-w-[100px] bg-dialog-bg text-text`;
 
   const handleReaction = (emoji) => {
-    onReact(message?._id, emoji, user?._id);
+    console.log(message?._id, emoji);
+
+    onReact(message?._id, emoji);
+
     setShowReactions(false);
     setShowEmojiPicker(false);
   };
-
   useOutSideClick(emojiPickerRef, () => {
     if (showEmojiPicker) setShowEmojiPicker(false);
   });
@@ -57,7 +59,7 @@ export default function MessageBubble({
     if (showOptions) setShowOptions(false);
   });
 
-  if (message.length === 0) return;
+  if (!message) return null;
 
   return (
     <div
@@ -162,7 +164,7 @@ export default function MessageBubble({
             className={`absolute -bottom-5 ${isUserMessage ? "right-2" : "left-2"} bg-layout-bg p-1 py-0.5 rounded-full text-sm shadow-mb`}
           >
             {message.reactions.map((r, i) => (
-              <span key={i}>{r.emoji}</span>
+              <span key={r._id || r.user}>{r.emoji}</span>
             ))}
           </div>
         )}

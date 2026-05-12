@@ -1,6 +1,6 @@
-import React, { useState, useRef, useEffect, useOptimistic } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import useUserStore from "../../store/use-user-store";
-import { isToday, isYesterday, format } from "date-fns";
+import { format } from "date-fns";
 import EmojiPicker from "emoji-picker-react";
 
 import {
@@ -20,10 +20,6 @@ import MessageBubble from "./message-bubble";
 import { useChatStore } from "../../store/chat-store";
 import { IoSend } from "react-icons/io5";
 
-const isValidate = (date) => {
-  return date instanceof Date && !isNaN(date);
-};
-
 export default function ChatWindow({ selectedContact, setSelectedContact }) {
   const [message, setMessage] = useState("");
   const [filePreview, setFilePreview] = useState(null);
@@ -35,6 +31,11 @@ export default function ChatWindow({ selectedContact, setSelectedContact }) {
   const messageEndRef = useRef(null);
   const emojiPickerRef = useRef(null);
   const fileInputRef = useRef(null);
+
+  // Track which conversation we already fetched messages for so that
+  // adding conversations to the dependency array below doesn't trigger
+  // a redundant re-fetch every time the conversations list updates.
+  const fetchedConvIdRef = useRef(null);
 
   const { user } = useUserStore();
 
@@ -52,39 +53,65 @@ export default function ChatWindow({ selectedContact, setSelectedContact }) {
     isUserOnline,
     getUserLastSeen,
     cleanup,
+    initSocketListeners,
   } = useChatStore();
 
   const online = isUserOnline(selectedContact?._id);
   const lastSeen = getUserLastSeen(selectedContact?._id);
   const isTyping = isUserTyping(selectedContact?._id);
+  const lastSeenText = lastSeen
+    ? `Last seen ${format(new Date(lastSeen), "HH:mm")}`
+    : "Offline";
 
   // ================= FETCH =================
   useEffect(() => {
     fetchConversation();
+    initSocketListeners();
   }, []);
 
+  // FIX: `conversations` is now in the dependency array.
+  //
+  // Why this was broken before:
+  //   - `fetchConversation` is async; it often resolves AFTER this effect
+  //     first runs (when selectedContact changes).
+  //   - With `[selectedContact]` only, the effect ran while `conversations`
+  //     was still [], found no match, and never called `fetchMessages`.
+  //   - Adding `conversations` means the effect re-runs once the list loads.
+  //
+  // The `fetchedConvIdRef` guard prevents re-fetching the same conversation
+  // when unrelated conversation list updates happen (e.g. unread count bumps).
   useEffect(() => {
-    if (selectedContact?._id && conversations?.length > 0) {
-      const conversation = conversations.find((conv) =>
-        conv.participants.some((p) => p._id === selectedContact._id),
-      );
+    if (!selectedContact || !conversations.length) return;
 
-      if (conversation?._id) {
-        fetchMessages(conversation._id);
-      }
-    }
+    const conversation = conversations.find((conv) =>
+      conv.participants.some((p) => p._id === selectedContact._id),
+    );
+
+    if (!conversation?._id) return;
+
+    // Only fetch if this is a different conversation than what we last loaded
+    const convId = conversation._id.toString();
+    if (convId === fetchedConvIdRef.current) return;
+
+    fetchedConvIdRef.current = convId;
+    fetchMessages(convId);
   }, [selectedContact, conversations]);
+
+  // Reset the ref whenever the user picks a different contact so we always
+  // re-fetch when switching conversations.
+  useEffect(() => {
+    fetchedConvIdRef.current = null;
+  }, [selectedContact]);
 
   // ================= SCROLL =================
   useEffect(() => {
-    messageEndRef.current?.scrollIntoView({
-      behavior: "smooth",
-    });
+    messageEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  // ================= TYPING =================
   useEffect(() => {
-    if (message.trim() && selectedContact) {
+    if (!selectedContact) return;
+
+    if (message.trim()) {
       startTyping(selectedContact._id);
 
       if (typingTimeoutRef.current) {
@@ -94,9 +121,19 @@ export default function ChatWindow({ selectedContact, setSelectedContact }) {
       typingTimeoutRef.current = setTimeout(() => {
         stopTyping(selectedContact._id);
       }, 2000);
+    } else {
+      stopTyping(selectedContact._id);
+
+      if (typingTimeoutRef.current) {
+        clearTimeout(typingTimeoutRef.current);
+      }
     }
 
-    return () => clearTimeout(typingTimeoutRef.current);
+    return () => {
+      if (typingTimeoutRef.current) {
+        clearTimeout(typingTimeoutRef.current);
+      }
+    };
   }, [message, selectedContact]);
 
   // ================= CLEANUP =================
@@ -104,32 +141,22 @@ export default function ChatWindow({ selectedContact, setSelectedContact }) {
     return () => cleanup();
   }, []);
 
+  // ================= FILE =================
   const handleFileChange = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     e.target.value = null;
-
     setSelectedFile(file);
 
     if (file.type.startsWith("image/")) {
-      const preview = URL.createObjectURL(file);
-      console.log(preview);
-      setFilePreview(preview);
+      setFilePreview(URL.createObjectURL(file));
     } else {
       setFilePreview(null);
     }
+
     setShowFileMenu(false);
   };
-
-  const normalizedMessages = Array.isArray(messages)
-    ? messages
-    : messages?.data || [];
-
-  const [optimisticMessages, addOptimisticMessage] = useOptimistic(
-    normalizedMessages,
-    (state, newMessage) => [...state, newMessage],
-  );
 
   // ================= SEND =================
   const handleSendMessage = async () => {
@@ -138,20 +165,7 @@ export default function ChatWindow({ selectedContact, setSelectedContact }) {
 
     try {
       const currentMessage = message;
-      const currentPreview = filePreview;
       const currentFile = selectedFile;
-
-      const optimisticMsg = {
-        _id: `temp-${Date.now()}`,
-        sender: user,
-        receiver: selectedContact,
-        content: currentMessage.trim(),
-        media: currentPreview || null,
-        createdAt: new Date().toISOString(),
-        messageStatus: "sending",
-      };
-
-      addOptimisticMessage(optimisticMsg);
 
       setMessage("");
 
@@ -170,9 +184,12 @@ export default function ChatWindow({ selectedContact, setSelectedContact }) {
 
       await sendMessage(formData);
 
-      // FIX: cleanup AFTER send (not before)
       setSelectedFile(null);
       setFilePreview(null);
+
+      if (fileInputRef.current) {
+        fileInputRef.current.value = null;
+      }
     } catch (error) {
       console.error("Send failed", error);
     }
@@ -203,8 +220,12 @@ export default function ChatWindow({ selectedContact, setSelectedContact }) {
 
   return (
     <div className="flex flex-col h-screen w-full">
+      {/* HEADER */}
       <div className="bg-form-bg p-2 flex items-center">
-        <button onClick={() => setSelectedContact(null)}>
+        <button
+          onClick={() => setSelectedContact(null)}
+          className="cursor-pointer"
+        >
           <FaArrowLeft className="mx-2 cursor-pointer" />
         </button>
 
@@ -223,11 +244,7 @@ export default function ChatWindow({ selectedContact, setSelectedContact }) {
             <span>Typing...</span>
           ) : (
             <span className="text-sm text-muted">
-              {online
-                ? "Online"
-                : lastSeen
-                  ? `Last seen ${format(new Date(lastSeen), "HH:mm")}`
-                  : "Offline"}
+              {online ? "Online" : lastSeenText}
             </span>
           )}
         </div>
@@ -241,8 +258,9 @@ export default function ChatWindow({ selectedContact, setSelectedContact }) {
         </button>
       </div>
 
+      {/* MESSAGES */}
       <div className="flex-1 overflow-y-auto p-4 bg-chat-bg">
-        {optimisticMessages.map((msg) => (
+        {messages.map((msg) => (
           <MessageBubble
             key={msg._id}
             message={msg}
@@ -251,10 +269,11 @@ export default function ChatWindow({ selectedContact, setSelectedContact }) {
             deleteMessage={deleteMessage}
           />
         ))}
+
         <div ref={messageEndRef} />
       </div>
 
-      {/* PREVIEW */}
+      {/* FILE PREVIEW */}
       {filePreview && (
         <div className="relative p-2">
           <img
@@ -264,7 +283,7 @@ export default function ChatWindow({ selectedContact, setSelectedContact }) {
           />
 
           <button
-            className="absolute top-1 left-1 right-1 p-1  text-text rounded-full"
+            className="absolute top-1 left-1 right-1 p-1 text-text rounded-full cursor-pointer"
             onClick={() => {
               setFilePreview(null);
               setSelectedFile(null);
@@ -278,7 +297,10 @@ export default function ChatWindow({ selectedContact, setSelectedContact }) {
 
       {/* INPUT */}
       <div className="p-2 bg-layout-bg flex gap-2 items-center">
-        <button onClick={() => setShowEmojiPicker(!showEmojiPicker)}>
+        <button
+          onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+          className="cursor-pointer"
+        >
           <FaSmile className="w-6 h-6 text-muted ml-4" />
         </button>
 
@@ -294,7 +316,10 @@ export default function ChatWindow({ selectedContact, setSelectedContact }) {
         )}
 
         <div className="relative">
-          <button onClick={() => setShowFileMenu(!showFileMenu)}>
+          <button
+            onClick={() => setShowFileMenu(!showFileMenu)}
+            className="cursor-pointer"
+          >
             <FaPaperclip className="text-muted w-6 h-6 mt-2" />
           </button>
 
@@ -309,9 +334,7 @@ export default function ChatWindow({ selectedContact, setSelectedContact }) {
               />
 
               <button
-                onClick={() => {
-                  fileInputRef.current.click();
-                }}
+                onClick={() => fileInputRef.current.click()}
                 className="flex items-center px-4 py-2 w-full bg-dialog-bg cursor-pointer"
               >
                 <FaImage className="mr-2" />
@@ -320,8 +343,8 @@ export default function ChatWindow({ selectedContact, setSelectedContact }) {
 
               <button
                 onClick={() => {
-                  (fileInputRef.current.click(),
-                    setShowFileMenu(!showFileMenu));
+                  fileInputRef.current.click();
+                  setShowFileMenu(false);
                 }}
                 className="flex items-center px-4 py-2 w-full bg-dialog-bg cursor-pointer"
               >
@@ -340,7 +363,10 @@ export default function ChatWindow({ selectedContact, setSelectedContact }) {
           placeholder="Type a message..."
         />
 
-        <button onClick={handleSendMessage} className="text-primary">
+        <button
+          onClick={handleSendMessage}
+          className="text-primary cursor-pointer"
+        >
           <IoSend className="w-6 h-6" />
         </button>
       </div>

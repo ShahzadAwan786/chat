@@ -14,205 +14,149 @@ export const useChatStore = create((set, get) => ({
   onlineUsers: new Map(),
   typingUsers: new Map(),
 
-  // ================= SOCKET =================
+  setCurrentUser: (user) => {
+    set({ currentUser: user });
+  },
+
   initSocketListeners: () => {
     const socket = getSocket();
-
     if (!socket) return;
 
     socket.off("receiver_message");
     socket.off("user_typing");
     socket.off("user_status");
+    socket.off("online_users_snapshot");
     socket.off("message_status_update");
     socket.off("reaction_update");
     socket.off("message_deleted");
     socket.off("message_read");
 
-    // RECEIVE MESSAGE
     socket.on("receiver_message", (message) => {
       get().receiveMessage(message);
     });
 
-    // USER STATUS
     socket.on("user_status", ({ userId, isOnline, lastSeen }) => {
       set((state) => {
         const updated = new Map(state.onlineUsers);
-
-        updated.set(userId, {
-          isOnline,
-          lastSeen,
-        });
-
-        return {
-          onlineUsers: updated,
-        };
+        updated.set(userId, { isOnline, lastSeen });
+        return { onlineUsers: updated };
       });
     });
 
-    // TYPING
+    socket.on("online_users_snapshot", (users) => {
+      set((state) => {
+        const updated = new Map(state.onlineUsers);
+        users.forEach(({ userId, isOnline, lastSeen }) => {
+          updated.set(userId, { isOnline, lastSeen });
+        });
+        return { onlineUsers: updated };
+      });
+    });
+
     socket.on("user_typing", ({ userId, conversationId, isTyping }) => {
       set((state) => {
         const updated = new Map(state.typingUsers);
-
         if (!updated.has(conversationId)) {
           updated.set(conversationId, new Set());
         }
-
         const typingSet = updated.get(conversationId);
-
-        if (isTyping) {
-          typingSet.add(userId);
-        } else {
-          typingSet.delete(userId);
-        }
-
-        return {
-          typingUsers: updated,
-        };
+        if (isTyping) typingSet.add(userId);
+        else typingSet.delete(userId);
+        return { typingUsers: updated };
       });
     });
 
-    // MESSAGE STATUS
     socket.on("message_status_update", ({ messageId, messageStatus }) => {
       set((state) => ({
         messages: state.messages.map((msg) =>
-          msg._id === messageId ? { ...msg, messageStatus } : msg,
+          msg._id?.toString() === messageId?.toString()
+            ? { ...msg, messageStatus }
+            : msg,
         ),
       }));
     });
 
-    // MESSAGE READ
     socket.on("message_read", ({ _id, messageStatus }) => {
       set((state) => ({
         messages: state.messages.map((msg) =>
-          msg._id === _id ? { ...msg, messageStatus } : msg,
+          msg._id?.toString() === _id?.toString()
+            ? { ...msg, messageStatus }
+            : msg,
         ),
       }));
     });
 
-    // REACTION
     socket.on("reaction_update", ({ messageId, reactions }) => {
       set((state) => ({
         messages: state.messages.map((msg) =>
-          msg._id === messageId ? { ...msg, reactions } : msg,
+          msg._id?.toString() !== messageId?.toString()
+            ? msg
+            : { ...msg, reactions: [...reactions] },
         ),
       }));
     });
 
-    // DELETE
     socket.on("message_deleted", ({ messageId }) => {
       set((state) => ({
-        messages: state.messages.filter((msg) => msg._id !== messageId),
+        messages: state.messages.filter(
+          (msg) => msg._id?.toString() !== messageId?.toString(),
+        ),
       }));
     });
   },
 
-  // ================= USER =================
-  setCurrentUser: (user) => {
-    set({ currentUser: user });
-  },
-
-  // ================= CONVERSATIONS =================
   fetchConversation: async () => {
     try {
-      set({
-        loading: true,
-        error: null,
-      });
-
+      set({ loading: true, error: null });
       const { data } = await axiosInstance.get("/chats/conversation");
-
-      set({
-        conversations: data?.data || [],
-        loading: false,
-      });
-
+      set({ conversations: data?.data || [], loading: false });
       return data?.data || [];
     } catch (error) {
       set({
         loading: false,
         error: error?.response?.data?.message || error.message,
       });
-
       return [];
     }
   },
 
-  // ================= FETCH MESSAGES =================
   fetchMessages: async (conversationId) => {
     if (!conversationId) return;
-
     try {
-      set({
-        loading: true,
-        error: null,
-      });
-
+      set({ loading: true, error: null });
       const { data } = await axiosInstance.get(
         `/chats/conversation/${conversationId}/messages`,
       );
-
       set({
         messages: data?.data || [],
-        currentConversation: conversationId,
+        currentConversation: conversationId.toString(),
         loading: false,
       });
-
       get().markMessageAsRead();
-
       return data?.data || [];
     } catch (error) {
       set({
         loading: false,
         error: error?.response?.data?.message || error.message,
       });
-
       return [];
     }
   },
 
-  // ================= SEND =================
   sendMessage: async (formData) => {
     try {
-      const senderId = formData.get("senderId");
-      const receiverId = formData.get("receiverId");
-      const content = formData.get("content");
-      const media = formData.get("media");
-
       const tempId = `temp-${Date.now()}`;
 
-      const optimisticMessage = {
-        _id: tempId,
-        sender: {
-          _id: senderId,
-        },
-        receiver: {
-          _id: receiverId,
-        },
-        content,
-        media: media instanceof File ? URL.createObjectURL(media) : null,
-        messageStatus: "sending",
-        createdAt: new Date().toISOString(),
-      };
-
-      // optimistic
-      set((state) => ({
-        messages: [...state.messages, optimisticMessage],
-      }));
+      set((state) => ({ messages: [...state.messages] }));
 
       const { data } = await axiosInstance.post(
         "/chats/send-message",
         formData,
-        {
-          headers: {
-            "Content-Type": "multipart/form-data",
-          },
-        },
+        { headers: { "Content-Type": "multipart/form-data" } },
       );
 
       const savedMessage = data?.data;
 
-      // replace temp
       set((state) => ({
         messages: state.messages.map((msg) =>
           msg._id === tempId ? savedMessage : msg,
@@ -220,32 +164,44 @@ export const useChatStore = create((set, get) => ({
       }));
 
       get().fetchConversation();
-
       return savedMessage;
     } catch (error) {
       console.log(error);
     }
   },
 
-  // ================= RECEIVE =================
   receiveMessage: (message) => {
     if (!message) return;
 
     set((state) => {
-      const exists = state.messages.some((msg) => msg._id === message._id);
+      const isCurrentConversation =
+        message.conversationId?.toString() ===
+        state.currentConversation?.toString();
 
-      if (exists) return state;
+      const updatedConversations = state.conversations.map((conv) => {
+        if (conv._id?.toString() !== message.conversationId?.toString())
+          return conv;
+        return {
+          ...conv,
+          lastMessage: message,
+          unreadCount: isCurrentConversation ? 0 : (conv.unreadCount || 0) + 1,
+        };
+      });
+
+      const exists = state.messages.some(
+        (m) => m._id?.toString() === message._id?.toString(),
+      );
 
       return {
-        messages: [...state.messages, message],
+        conversations: updatedConversations,
+        messages:
+          isCurrentConversation && !exists
+            ? [...state.messages, message]
+            : state.messages,
       };
     });
-
-    get().fetchConversation();
-    get().markMessageAsRead();
   },
 
-  // ================= READ =================
   markMessageAsRead: async () => {
     try {
       const { messages, currentUser } = get();
@@ -259,7 +215,6 @@ export const useChatStore = create((set, get) => ({
             msg.messageStatus !== "read",
         )
         .map((msg) => msg._id);
-
       if (!unreadIds.length) return;
 
       await axiosInstance.put("/chats/messages/read", {
@@ -268,11 +223,8 @@ export const useChatStore = create((set, get) => ({
 
       set((state) => ({
         messages: state.messages.map((msg) =>
-          unreadIds.includes(msg._id)
-            ? {
-                ...msg,
-                messageStatus: "read",
-              }
+          unreadIds.some((id) => id?.toString() === msg._id?.toString())
+            ? { ...msg, messageStatus: "read" }
             : msg,
         ),
       }));
@@ -281,36 +233,27 @@ export const useChatStore = create((set, get) => ({
     }
   },
 
-  // ================= DELETE =================
   deleteMessage: async (messageId) => {
     try {
       await axiosInstance.delete(`/chats/messages/${messageId}`);
-
       set((state) => ({
-        messages: state.messages.filter((msg) => msg._id !== messageId),
+        messages: state.messages.filter(
+          (msg) => msg._id?.toString() !== messageId?.toString(),
+        ),
       }));
     } catch (error) {
       console.log(error);
     }
   },
 
-  // ================= REACTION =================
-  addReaction: (messageId, emoji, userId) => {
+  addReaction: (messageId, emoji) => {
     const socket = getSocket();
-
-    socket?.emit("add_reactions", {
-      messageId,
-      emoji,
-      userId,
-    });
+    socket?.emit("add_reactions", { messageId, emoji });
   },
 
-  // ================= TYPING =================
   startTyping: (receiverId) => {
     const socket = getSocket();
-
     const { currentConversation } = get();
-
     socket?.emit("start_typing", {
       conversationId: currentConversation,
       receiverId,
@@ -319,33 +262,29 @@ export const useChatStore = create((set, get) => ({
 
   stopTyping: (receiverId) => {
     const socket = getSocket();
-
     const { currentConversation } = get();
-
     socket?.emit("stop_typing", {
       conversationId: currentConversation,
       receiverId,
     });
   },
 
-  // ================= HELPERS =================
   isUserTyping: (userId) => {
     const { typingUsers, currentConversation } = get();
-
     if (!currentConversation) return false;
-
-    return typingUsers.get(currentConversation)?.has(userId) || false;
+    const users = typingUsers.get(currentConversation);
+    if (!users) return false;
+    return users.has(userId);
   },
 
   isUserOnline: (userId) => {
-    return get().onlineUsers.get(userId)?.isOnline || false;
+    return get().onlineUsers.get(userId)?.isOnline === true;
   },
 
   getUserLastSeen: (userId) => {
     return get().onlineUsers.get(userId)?.lastSeen || null;
   },
 
-  // ================= CLEANUP =================
   cleanup: () => {
     set({
       conversations: [],

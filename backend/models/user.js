@@ -2,29 +2,15 @@ const mongoose = require("mongoose");
 
 const userSchema = new mongoose.Schema(
   {
-    phoneNumber: {
-      type: String,
-      unique: true,
-      sparse: true,
-    },
-
-    phoneSuffix: {
-      type: String,
-      default: null,
-    },
-
-    userName: {
-      type: String,
-      default: null,
-    },
+    phoneNumber: { type: String, unique: true, sparse: true },
+    phoneSuffix: { type: String, default: null },
+    userName: { type: String, default: null },
 
     email: {
       type: String,
       sparse: true,
       validate: {
-        validator: (value) =>
-          !value || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value),
-        message: "Invalid email format",
+        validator: (v) => !v || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v),
       },
     },
 
@@ -35,7 +21,8 @@ const userSchema = new mongoose.Schema(
     about: String,
 
     isOnline: { type: Boolean, default: false },
-    lastSeen: { type: Boolean, default: false },
+
+    lastSeen: { type: Date, default: null },
 
     isVerified: { type: Boolean, default: false },
     agreed: { type: Boolean, default: false },
@@ -43,6 +30,4 @@ const userSchema = new mongoose.Schema(
   { timestamps: true },
 );
 
-const User = mongoose.model("User", userSchema);
-
-module.exports = User;
+module.exports = mongoose.model("User", userSchema);

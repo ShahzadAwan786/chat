@@ -1,21 +1,24 @@
 const jwt = require("jsonwebtoken");
-const response = require("../utils/response-handler");
 
-const socketMiddleware = async (socket, next) => {
+const socketMiddleware = (socket, next) => {
   const authToken =
     socket.handshake.auth?.token ||
-    socket.handshake.headers["authorization"]?.split(" ")[1];
+    socket.handshake.headers?.authorization?.split(" ")[1];
 
-  if (authToken) {
-    return next(new Error("Authorizarion token missing"));
+  if (!authToken) {
+    return next(new Error("Authorization token missing"));
   }
+
   try {
-    const decode = jwt.verify(authToken, process.env.JWT_SECRET);
-    socket.user = decode;
+    const decoded = jwt.verify(authToken, process.env.JWT_SECRET);
+
+    socket.user = decoded;
+    socket.userId = decoded.userId;
 
     next();
   } catch (error) {
-    console.error(error);
+    console.error("Socket auth error:", error.message);
+    return next(new Error("Invalid token"));
   }
 };
 

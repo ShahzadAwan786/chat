@@ -4,151 +4,146 @@ const Message = require("../models/message");
 const socketMiddleware = require("../middleware/socketMiddleware");
 
 const onlineUsers = new Map();
-const typingUsers = new Map();
+// userId -> Set(socketIds)
 
 const initializeSocket = (server) => {
   const io = new Server(server, {
     cors: {
       origin: process.env.FRONTEND_URL,
       credentials: true,
-      methods: ["GET", "POST", "PUT", "DELETE"],
     },
   });
 
   io.use(socketMiddleware);
-  io.on("connection", (socket) => {
-    console.log("CONNECTED:", socket.id);
 
-    // ================= CONNECT USER =================
-    socket.on("user_connected", async (userId) => {
-      try {
-        socket.userId = userId;
+  io.on("connection", async (socket) => {
+    const userId = socket.userId;
+    if (!userId) return;
 
-        onlineUsers.set(userId, socket.id);
+    socket.join(userId);
 
-        socket.join(userId);
+    // ================= ONLINE =================
+    if (!onlineUsers.has(userId)) {
+      onlineUsers.set(userId, new Set());
+    }
 
-        await User.findByIdAndUpdate(userId, {
-          isOnline: true,
-          lastSeen: null,
-        });
+    onlineUsers.get(userId).add(socket.id);
 
-        io.emit("user_status", {
-          userId,
-          isOnline: true,
-          lastSeen: null,
-        });
-      } catch (error) {
-        console.log(error);
-      }
+    await User.findByIdAndUpdate(userId, {
+      isOnline: true,
+      lastSeen: null,
     });
+
+    // Broadcast updated status to everyone
+    io.emit("user_status", {
+      userId,
+      isOnline: true,
+      lastSeen: null,
+    });
+
+    // Send snapshot of ALL currently online users to the newly connected client
+    // so they don't have an empty onlineUsers map on first load
+    const snapshot = [];
+    for (const [uid] of onlineUsers) {
+      snapshot.push({ userId: uid, isOnline: true, lastSeen: null });
+    }
+    socket.emit("online_users_snapshot", snapshot);
+
+    console.log("CONNECTED:", userId);
 
     // ================= TYPING =================
     socket.on("start_typing", ({ conversationId, receiverId }) => {
-      if (!socket.userId || !conversationId || !receiverId) return;
-
-      if (!typingUsers.has(socket.userId)) {
-        typingUsers.set(socket.userId, {});
-      }
-
-      const userTyping = typingUsers.get(socket.userId);
-
-      userTyping[conversationId] = true;
-
-      if (userTyping[`${conversationId}_timeout`]) {
-        clearTimeout(userTyping[`${conversationId}_timeout`]);
-      }
-
-      userTyping[`${conversationId}_timeout`] = setTimeout(() => {
-        userTyping[conversationId] = false;
-
-        io.to(receiverId).emit("user_typing", {
-          userId: socket.userId,
-          conversationId,
-          isTyping: false,
-        });
-      }, 2000);
-
       io.to(receiverId).emit("user_typing", {
-        userId: socket.userId,
+        userId,
         conversationId,
         isTyping: true,
       });
     });
 
     socket.on("stop_typing", ({ conversationId, receiverId }) => {
-      if (!socket.userId || !conversationId || !receiverId) return;
-
-      if (typingUsers.has(socket.userId)) {
-        const userTyping = typingUsers.get(socket.userId);
-
-        userTyping[conversationId] = false;
-
-        if (userTyping[`${conversationId}_timeout`]) {
-          clearTimeout(userTyping[`${conversationId}_timeout`]);
-
-          delete userTyping[`${conversationId}_timeout`];
-        }
-
-        io.to(receiverId).emit("user_typing", {
-          userId: socket.userId,
-          conversationId,
-          isTyping: false,
-        });
-      }
+      io.to(receiverId).emit("user_typing", {
+        userId,
+        conversationId,
+        isTyping: false,
+      });
     });
 
-    // ================= REACTION =================
-    socket.on("add_reactions", async ({ messageId, emoji, userId }) => {
+    // ================= MESSAGE DELIVERY =================
+    // Note: primary message sending goes through REST (chat-controller).
+    // This handler exists as a fallback / for direct socket sends if needed.
+    socket.on("send_message", async (message) => {
+      const receiverId = message.receiver?._id || message.receiver;
+      const senderId = message.sender?._id || message.sender;
+
+      io.to(receiverId).emit("receiver_message", message);
+
+      await Message.findByIdAndUpdate(message._id, {
+        messageStatus: "delivered",
+      });
+
+      io.to(receiverId).emit("message_status_update", {
+        messageId: message._id,
+        messageStatus: "delivered",
+      });
+
+      io.to(senderId).emit("message_status_update", {
+        messageId: message._id,
+        messageStatus: "delivered",
+      });
+    });
+
+    // ================= REACTIONS =================
+    socket.on("add_reactions", async ({ messageId, emoji }) => {
       try {
         const message = await Message.findById(messageId);
-
         if (!message) return;
 
-        const existingIndex = message.reactions.findIndex(
+        const index = message.reactions.findIndex(
           (r) => r.user.toString() === userId,
         );
 
-        if (existingIndex > -1) {
-          const existing = message.reactions[existingIndex];
-
-          if (existing.emoji === emoji) {
-            message.reactions.splice(existingIndex, 1);
+        if (index > -1) {
+          if (message.reactions[index].emoji === emoji) {
+            // Same emoji tapped again — remove it (toggle off)
+            message.reactions.splice(index, 1);
           } else {
-            message.reactions[existingIndex].emoji = emoji;
+            // Different emoji — replace
+            message.reactions[index].emoji = emoji;
           }
         } else {
-          message.reactions.push({
-            user: userId,
-            emoji,
-          });
+          message.reactions.push({ user: userId, emoji });
         }
 
         await message.save();
 
-        const populated = await Message.findById(message._id).populate(
+        const updated = await Message.findById(messageId).populate(
           "reactions.user",
           "userName",
         );
 
-        const payload = {
+        // Emit to both sender and receiver using room-based delivery
+        io.to(message.sender.toString()).emit("reaction_update", {
           messageId,
-          reactions: populated.reactions,
-        };
+          reactions: updated.reactions,
+        });
 
-        io.emit("reaction_update", payload);
-      } catch (error) {
-        console.log(error);
+        io.to(message.receiver.toString()).emit("reaction_update", {
+          messageId,
+          reactions: updated.reactions,
+        });
+      } catch (err) {
+        console.log(err);
       }
     });
 
     // ================= DISCONNECT =================
     socket.on("disconnect", async () => {
-      try {
-        const userId = socket.userId;
+      const sockets = onlineUsers.get(userId);
+      if (!sockets) return;
 
-        if (!userId) return;
+      sockets.delete(socket.id);
 
+      if (sockets.size === 0) {
         onlineUsers.delete(userId);
 
         const lastSeen = new Date();
@@ -163,15 +158,11 @@ const initializeSocket = (server) => {
           isOnline: false,
           lastSeen,
         });
-
-        console.log("DISCONNECTED:", userId);
-      } catch (error) {
-        console.log(error);
       }
+
+      console.log("DISCONNECTED:", userId);
     });
   });
-
-  io.socketUserMap = onlineUsers;
 
   return io;
 };

@@ -9,23 +9,24 @@ import Status from "./pages/status/status";
 import useUserStore from "./store/use-user-store";
 import { useChatStore } from "./store/chat-store";
 import { useEffect } from "react";
-import { disconnect } from "./services/chat-services";
+import { disconnectSocket } from "./services/chat-services";
 export default function App() {
   const { user } = useUserStore();
-  const { setCurrentUser, initSocketListeners, cleanup } = useChatStore();
-
+  const { initSocketListeners, cleanup } = useChatStore();
+  const setCurrentUser = useChatStore((state) => state.setCurrentUser);
   useEffect(() => {
     if (user?._id) {
       const socket = initSocketListeners();
+      setCurrentUser(user);
+
       if (socket) {
-        setCurrentUser(user);
         initSocketListeners();
       }
     }
 
     return () => {
       cleanup();
-      disconnect();
+      disconnectSocket();
     };
   }, [user]);
 

@@ -5,19 +5,17 @@ const Message = require("../models/message");
 
 const sendMessage = async (req, res) => {
   try {
-    const { senderId, receiverId, content, messageStatus } = req.body;
+    const { senderId, receiverId, content } = req.body;
     const file = req.file;
-    console.log(file);
-    const participants = [senderId, receiverId];
 
-    // ✅ FIX: correct array query
     let conversation = await Conversation.findOne({
-      participants: { $all: participants },
+      participants: { $all: [senderId, receiverId] },
     });
 
     if (!conversation) {
       conversation = await Conversation.create({
-        participants,
+        participants: [senderId, receiverId],
+        unreadCount: 0,
       });
     }
 
@@ -25,14 +23,8 @@ const sendMessage = async (req, res) => {
     let contentType = null;
 
     if (file) {
-      const uploadFile = await uploadFileToCloudinary(file);
-
-      if (!uploadFile?.secure_url) {
-        return response(res, 400, "Upload failed");
-      }
-
-      media = uploadFile.secure_url;
-
+      const upload = await uploadFileToCloudinary(file);
+      media = upload.secure_url;
       contentType = file.mimetype.startsWith("image") ? "image" : "video";
     } else if (content?.trim()) {
       contentType = "text";
@@ -40,7 +32,6 @@ const sendMessage = async (req, res) => {
       return response(res, 400, "Message required");
     }
 
-    // ✅ FIX: create message properly
     const message = await Message.create({
       conversationId: conversation._id,
       sender: senderId,
@@ -48,32 +39,42 @@ const sendMessage = async (req, res) => {
       content,
       contentType,
       media,
-      messageStatus,
+      messageStatus: "send",
     });
 
-    // ✅ ALWAYS update lastMessage
     conversation.lastMessage = message._id;
+    conversation.unreadCount = (conversation.unreadCount || 0) + 1;
     await conversation.save();
 
-    const populatedMessage = await Message.findById(message._id)
-      .populate("sender", "userName profilePicture")
-      .populate("receiver", "userName profilePicture");
+    const populated = await Message.findById(message._id).populate(
+      "sender receiver",
+      "userName profilePicture",
+    );
 
-    // socket emit
-    if (req.io && req.socketUserMap) {
-      const receiverSocket = req.socketUserMap.get(receiverId);
+    // Use room-based delivery (io.to(userId)) instead of socketUserMap lookups.
+    // socket-server.js does socket.join(userId) on connect, so this always works
+    // regardless of which socket instance the user is on.
+    if (req.io) {
+      // Emit to receiver
+      req.io.to(receiverId).emit("receiver_message", populated);
 
-      if (receiverSocket) {
-        req.io.to(receiverSocket).emit("receiver_message", populatedMessage);
+      // Emit back to sender so their own optimistic message gets replaced correctly
+      req.io.to(senderId).emit("receiver_message", populated);
 
-        message.messageStatus = "delivered";
-        await message.save();
-      }
+      // Mark as delivered since we just pushed to the receiver's room
+      message.messageStatus = "delivered";
+      await message.save();
+
+      // Let the sender know delivery status updated
+      req.io.to(senderId).emit("message_status_update", {
+        messageId: message._id,
+        messageStatus: "delivered",
+      });
     }
 
-    return response(res, 200, "Message sent", populatedMessage);
+    return response(res, 200, "Message sent", populated);
   } catch (err) {
-    console.error(err);
+    console.log(err);
     return response(res, 500, "Server error");
   }
 };
@@ -105,20 +106,11 @@ const getMessage = async (req, res) => {
   try {
     const { conversationId } = req.params;
     const userId = req.user.userId;
-    const conversation = await Conversation.findById(conversationId);
 
-    if (!conversation) {
-      return response(res, 404, "Not found");
-    }
-
-    const messages = await Message.find({
-      conversationId,
-    })
-      .populate("sender", "userName profilePicture")
-      .populate("receiver", "userName profilePicture")
+    const messages = await Message.find({ conversationId })
+      .populate("sender receiver", "userName profilePicture")
       .sort({ createdAt: 1 });
 
-    // mark read
     await Message.updateMany(
       {
         conversationId,
@@ -128,69 +120,75 @@ const getMessage = async (req, res) => {
       { messageStatus: "read" },
     );
 
-    conversation.unreadCount = 0;
-    await conversation.save();
+    await Conversation.findByIdAndUpdate(conversationId, {
+      unreadCount: 0,
+    });
 
-    return response(res, 200, "Messages", messages);
+    return response(res, 200, "ok", messages);
   } catch (err) {
-    return response(res, 500, "Server error");
+    return response(res, 500, "error");
   }
 };
 
 const markAsRead = async (req, res) => {
   const { messageIds } = req.body;
   const userId = req.user.userId;
+
   try {
-    let messages = await Message.find({
+    const messages = await Message.find({
       _id: { $in: messageIds },
       receiver: userId,
     });
 
     await Message.updateMany(
       { _id: { $in: messageIds }, receiver: userId },
-      { $set: { messageStatus: "read" } },
+      { messageStatus: "read" },
     );
 
-    if (req.io && req.socketUserMap) {
-      for (const message of messages) {
-        const senderSocketId = req.socketUserMap.get(message.sender.toString());
-        if (senderSocketId) {
-          const updatedMessages = {
-            _id: message._id,
-            messageStatus: "read",
-          };
-          req.io.to(senderSocketId).emit("message_read", updatedMessages);
-          await message.save();
-        }
-      }
+    await Conversation.updateMany({ participants: userId }, { unreadCount: 0 });
+
+    // Notify each sender that their message was read.
+    // Uses room-based delivery — no socketUserMap needed.
+    if (req.io) {
+      messages.forEach((msg) => {
+        req.io.to(msg.sender.toString()).emit("message_read", {
+          _id: msg._id,
+          messageStatus: "read",
+        });
+      });
     }
-    return response(res, 200, "Message marked as read", messages);
-  } catch (error) {
-    console.error(error);
-    return response(res, 500, "Internal server error");
+
+    return response(res, 200, "Marked as read");
+  } catch (err) {
+    console.log(err);
+    return response(res, 500, "Error");
   }
 };
 
 const deleteMessage = async (req, res) => {
   const { messageId } = req.params;
   const userId = req.user.userId;
+
   try {
     const message = await Message.findById(messageId);
+
     if (!message) {
       return response(res, 404, "Message not found");
     }
+
     if (message.sender.toString() !== userId) {
       return response(res, 403, "Not authorized to delete this message");
     }
+
     await message.deleteOne();
-    if (req.io && req.socketUserMap) {
-      const reciverSocketId = req.socketUserMap.get(
-        message.receiver.toString(),
-      );
-      if (reciverSocketId) {
-        req.io.to(reciverSocketId).emit("message_deleted", messageId);
-      }
+
+    // Notify receiver using room — no socketUserMap needed.
+    if (req.io) {
+      req.io.to(message.receiver.toString()).emit("message_deleted", {
+        messageId,
+      });
     }
+
     return response(res, 200, "Message deleted successfully");
   } catch (error) {
     console.error(error);

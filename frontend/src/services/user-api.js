@@ -19,7 +19,7 @@ export async function verifyOtp(payload) {
     const res = await axiosInstance.post("/auth/verify-otp", payload);
     return res.data;
   } catch (error) {
-    throw error.res ? error.res.data : error.message;
+    throw error.response ? error.response.data : error.message;
   }
 }
 
@@ -28,7 +28,7 @@ export async function updateUserProfile(updateData) {
     const res = await axiosInstance.put("/auth/update-profile", updateData);
     return res.data;
   } catch (error) {
-    throw error.res ? error.res.data : error.message;
+    throw error.response ? error.response.data : error.message;
   }
 }
 
@@ -39,7 +39,7 @@ export async function checkUserAuth() {
       return { isAuthentication: true, user: res?.data?.data };
     } else if (res.data.status === "error") return { isAuthentication: false };
   } catch (error) {
-    throw error.res ? error.res.data : error.message;
+    throw error.response ? error.response.data : error.message;
   }
 }
 
@@ -48,7 +48,7 @@ export async function logoutUser() {
     const res = await axiosInstance.get("/auth/logout");
     return res.data;
   } catch (error) {
-    throw error.res ? error.res.data : error.message;
+    throw error.response ? error.response.data : error.message;
   }
 }
 
@@ -57,6 +57,6 @@ export async function getAllUsers() {
     const res = await axiosInstance.get("/auth/users");
     return res.data;
   } catch (error) {
-    throw error.res ? error.res.data : error.message;
+    throw error.res ? error.response.data : error.message;
   }
 }

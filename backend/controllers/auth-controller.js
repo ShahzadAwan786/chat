@@ -91,11 +91,8 @@ const verifyOtp = async (req, res) => {
       await user.save();
     }
     const token = generateToken(user?._id);
-    res.cookie("auth_token", token, {
-      httpOnly: true,
-      maxAge: 1000 * 60 * 60 * 24 * 356,
-    });
-    return response(res, 200, "Otp verified successfuly", { user });
+
+    return response(res, 200, "Otp verified successfuly", { user, token });
   } catch (error) {
     console.error(error);
     return response(res, 500, "Internal server error");
@@ -111,7 +108,6 @@ const updateProfile = async (req, res) => {
     const file = req.file;
     if (file) {
       const uploadResult = await uploadFileToCloudinary(file);
-      console.log(uploadResult);
       user.profilePicture = uploadResult?.secure_url;
     } else if (req.body.profilePicture) {
       user.profilePicture = req.body.profilePicture;
@@ -130,7 +126,6 @@ const updateProfile = async (req, res) => {
 
 const logout = (req, res) => {
   try {
-    res.cookie("auth_token", "", { expires: new Date(0) });
     return response(res, 200, "user logout successfuly");
   } catch (error) {
     console.error(error);
