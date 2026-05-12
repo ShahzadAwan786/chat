@@ -1,6 +1,6 @@
 import axios from "axios";
 
-const apiUrl = `https://unique-peace-production-5915.up.railway.app/api`;
+const apiUrl = `http://localhost:8000/api`;
 
 const getToken = () => localStorage.getItem("auth-token");
 //
