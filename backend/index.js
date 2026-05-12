@@ -16,10 +16,7 @@ const app = express();
 const PORT = process.env.PORT;
 
 const corsOption = {
-  origin: [
-    `http://localhost:5173`,
-    `https://whatsapp-clone-three-pi.vercel.app`,
-  ],
+  origin: "*",
   credentials: true,
 };
 
