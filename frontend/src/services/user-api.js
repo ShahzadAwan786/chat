@@ -7,10 +7,9 @@ export async function sendOtp({ email, phoneNumber, phoneSuffix }) {
       phoneNumber,
       phoneSuffix,
     });
-
     return res.data;
   } catch (error) {
-    throw error.res ? error.res.data : error.message;
+    throw error.response ? error.response.data : error.message;
   }
 }
 
@@ -57,6 +56,15 @@ export async function getAllUsers() {
     const res = await axiosInstance.get("/auth/users");
     return res.data;
   } catch (error) {
-    throw error.res ? error.response.data : error.message;
+    throw error.response ? error.response.data : error.message; // ✅ fixed: was error.res
+  }
+}
+
+export async function googleLoginApi(data) {
+  try {
+    const res = await axiosInstance.post("/auth/google-login", data);
+    return res.data;
+  } catch (error) {
+    throw error.response ? error.response.data : error.message;
   }
 }

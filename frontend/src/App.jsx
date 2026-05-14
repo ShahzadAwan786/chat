@@ -3,13 +3,13 @@ import LogIn from "./pages/auth/login";
 import { ToastContainer } from "react-toastify";
 import ProtectedRoute, { PublicRoute } from "../protected";
 import Home from "./components/home";
-import UserDetail from "./components/user-detail";
 import Setting from "./pages/setting/setting";
 import Status from "./pages/status/status";
 import useUserStore from "./store/use-user-store";
 import { useChatStore } from "./store/chat-store";
 import { useEffect } from "react";
 import { disconnectSocket } from "./services/chat-services";
+import Profile from "./components/profile";
 export default function App() {
   const { user } = useUserStore();
   const { initSocketListeners, cleanup } = useChatStore();
@@ -40,7 +40,7 @@ export default function App() {
           </Route>
           <Route element={<ProtectedRoute />}>
             <Route path="/" element={<Home />} />
-            <Route path="/user-profile" element={<UserDetail />} />
+            <Route path="/profile" element={<Profile />} />
             <Route path="/setting" element={<Setting />} />
             <Route path="/status" element={<Status />} />
           </Route>

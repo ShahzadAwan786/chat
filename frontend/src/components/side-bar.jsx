@@ -28,7 +28,7 @@ export default function SideBar() {
       setActiveTab("chats");
     } else if (location.pathname === "/status") {
       setActiveTab("status");
-    } else if (location.pathname === "/user-profile") {
+    } else if (location.pathname === "/profile") {
       setActiveTab("profile");
     } else if (location.pathname === "/setting") {
       setActiveTab("setting");
@@ -56,7 +56,7 @@ export default function SideBar() {
       {!isMobile && <div className="grow" />}
       <Link
         to="/profile"
-        className={`${isMobile ? "" : "mb-8"} ${activeTab === "statprofileus" && "bg-gray-300 text-gray-800 shadow-sm p-2 rounded-full"} focus-outline-none`}
+        className={`${isMobile ? "" : "mb-8"} ${activeTab === "profile" && "bg-gray-300 text-gray-800 shadow-sm p-2 rounded-full"} focus-outline-none`}
       >
         {user.profilePicture ? (
           <img

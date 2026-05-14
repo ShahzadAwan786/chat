@@ -20,11 +20,8 @@ import {
 } from "../../services/user-api";
 import { toast } from "react-toastify";
 
-/* ✅ GOOGLE LOGIN ONLY (NO UI CHANGE) */
 import { GoogleLogin } from "@react-oauth/google";
 import { jwtDecode } from "jwt-decode";
-
-/* ---------------- VALIDATION ---------------- */
 
 const loginValidationSchema = yup
   .object()
@@ -66,8 +63,6 @@ const profileValidationSchema = yup.object().shape({
   agreed: yup.bool().oneOf([true], "You must agree to the terms"),
 });
 
-/* ---------------- COMPONENT ---------------- */
-
 export default function LogIn() {
   const { step, userPhoneData, setStep, setUserPhoneData, resetLoginState } =
     useLoginStore();
@@ -86,8 +81,6 @@ export default function LogIn() {
   const [loading, setLoading] = useState(false);
 
   const navigation = useNavigate();
-
-  /* ---------------- FORMS ---------------- */
 
   const {
     register: loginRegister,
@@ -131,16 +124,13 @@ export default function LogIn() {
         const user = res.data.user;
 
         localStorage.setItem("auth-token", token);
-
         setUser(user);
-
+        resetLoginState();
         toast.success("Google Login Success");
-
         navigation("/");
       }
     } catch (err) {
       console.log(err);
-
       toast.error("Google Login Failed");
     } finally {
       setLoading(false);
